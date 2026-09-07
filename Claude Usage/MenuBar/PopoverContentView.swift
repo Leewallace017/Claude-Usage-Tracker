@@ -592,12 +592,16 @@ struct HeaderIconButton: View {
 /// a soft breathing glow) whenever the assertion is held — including holds
 /// from auto mode — so it doubles as an "is my Mac staying awake?" indicator.
 /// Hovering shows a live status card; right-click offers durations and auto mode.
+///
+/// The looping glow and steam live in `KeepAwakeAmbientLayerView` (Core
+/// Animation), not SwiftUI: a `.repeatForever` animation here re-renders the
+/// whole popover every frame while it's open. Only one-shot effects stay in
+/// SwiftUI.
 struct KeepAwakeHeaderButton: View {
     @ObservedObject private var service = KeepAwakeService.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
     @State private var rippleID = 0
-    @State private var glowPulse = false
     @State private var showHoverCard = false
     @State private var hoverCardTask: DispatchWorkItem?
 
@@ -624,8 +628,10 @@ struct KeepAwakeHeaderButton: View {
                         .id(-rippleID)
                 }
 
-                if isActive, !reduceMotion {
-                    KeepAwakeSteamView()
+                if isActive {
+                    KeepAwakeAmbientLayerView(animates: !reduceMotion)
+                        .frame(width: 24, height: 24)
+                        .allowsHitTesting(false)
                 }
 
                 Image(systemName: isActive || isArmed ? "cup.and.saucer.fill" : "cup.and.saucer")
@@ -634,10 +640,7 @@ struct KeepAwakeHeaderButton: View {
                     .contentTransition(.symbolEffect(.replace))
                     .symbolEffect(.bounce, options: .speed(1.3), value: isActive)
                     .symbolEffect(.bounce, options: .speed(1.3), value: service.autoEnabled)
-                    .shadow(
-                        color: isActive ? Color.orange.opacity(glowPulse ? 0.55 : 0.25) : .clear,
-                        radius: glowPulse ? 5 : 3
-                    )
+                    .shadow(color: isActive ? Color.orange.opacity(0.3) : .clear, radius: 3)
             }
             .foregroundColor(iconColor)
             .frame(width: 24, height: 24, alignment: .center)
@@ -689,22 +692,8 @@ struct KeepAwakeHeaderButton: View {
                 showHoverCard = false
             }
         }
-        .animation(
-            isActive && !reduceMotion
-                ? .easeInOut(duration: 2.0).repeatForever(autoreverses: true)
-                : .easeOut(duration: 0.3),
-            value: glowPulse
-        )
-        .onAppear {
-            if isActive { glowPulse = true }
-        }
         .onChange(of: isActive) { _, active in
-            if active {
-                rippleID += 1
-                glowPulse = true
-            } else {
-                glowPulse = false
-            }
+            if active { rippleID += 1 }
         }
         .onChange(of: service.autoEnabled) { _, enabled in
             // Arming auto (usually the first-ever click) plays the ripple even
@@ -821,34 +810,6 @@ private struct KeepAwakeActivationRipple: View {
                     expanded = true
                 }
             }
-    }
-}
-
-/// Three tiny steam wisps drifting up from the cup while keep-awake is active.
-/// Each dot fades out as it rises, then loops; staggered delays keep the
-/// motion organic. Only shown when Reduce Motion is off.
-private struct KeepAwakeSteamView: View {
-    @State private var rising = false
-
-    var body: some View {
-        ZStack {
-            steamDot(x: -2.5, delay: 0.0)
-            steamDot(x: 0.5, delay: 0.55)
-            steamDot(x: 3.0, delay: 1.1)
-        }
-        .allowsHitTesting(false)
-        .onAppear { rising = true }
-    }
-
-    private func steamDot(x: CGFloat, delay: Double) -> some View {
-        Circle()
-            .fill(Color.orange.opacity(rising ? 0 : 0.5))
-            .frame(width: 2.5, height: 2.5)
-            .offset(x: x, y: rising ? -12 : -5)
-            .animation(
-                .easeOut(duration: 1.7).repeatForever(autoreverses: false).delay(delay),
-                value: rising
-            )
     }
 }
 
